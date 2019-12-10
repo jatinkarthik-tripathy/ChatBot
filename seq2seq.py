@@ -1,42 +1,56 @@
 import tensorflow as tf
 import numpy as np
+
+
 class seq2seq:
     def create_models(self, inp_len, out_len, latent_dim=256):
         self.inp_len = inp_len
         self.out_len = out_len
         self.latent_dim = latent_dim
 
-        #training model:
+        # training model:
         # Define an input sequence and process it.
-        encoder_inputs =  tf.keras.layers.Input(shape=(None, self.inp_len))
-        encoder =  tf.keras.layers.LSTM(self.latent_dim, return_state=True)
-        encoder_outputs, state_h, state_c = encoder(encoder_inputs)
+        encoder_inputs = tf.keras.layers.Input(shape=(None, self.inp_len))
+        encoder = tf.keras.layers.LSTM(self.latent_dim, return_state=True)
+        _, state_h, state_c = encoder(encoder_inputs)
 
         encoder_states = [state_h, state_c]
 
         # Set up the decoder, using `encoder_states` as initial state.
         decoder_inputs = tf.keras.layers.Input(shape=(None, self.out_len))
-        decoder_lstm = tf.keras.layers.LSTM(self.latent_dim, return_sequences=True, return_state=True)
-        decoder_outputs, _, _ = decoder_lstm(decoder_inputs, initial_state=encoder_states)
-        decoder_dense = tf.keras.layers.Dense(self.out_len, activation='softmax')
+        decoder_lstm = tf.keras.layers.LSTM(
+            self.latent_dim, return_sequences=True, return_state=True)
+        decoder_outputs, _, _ = decoder_lstm(
+            decoder_inputs, initial_state=encoder_states)
+        decoder_dense = tf.keras.layers.Dense(
+            self.out_len, activation='softmax')
         decoder_outputs = decoder_dense(decoder_outputs)
 
-        self.train_model = tf.keras.models.Model([encoder_inputs, decoder_inputs], decoder_outputs)
-        self.train_model.compile(optimizer='rmsprop', loss='categorical_crossentropy')
+        self.train_model = tf.keras.models.Model(
+            [encoder_inputs, decoder_inputs], decoder_outputs)
+        self.train_model.compile(
+            optimizer='rmsprop', loss='categorical_crossentropy')
 
         # Inference setup:
-        self.encoder_model = tf.keras.models.Model(encoder_inputs, encoder_states)
+        self.encoder_model = tf.keras.models.Model(
+            encoder_inputs, encoder_states)
 
         decoder_state_input_h = tf.keras.layers.Input(shape=(self.latent_dim,))
         decoder_state_input_c = tf.keras.layers.Input(shape=(self.latent_dim,))
         decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
-        decoder_outputs, state_h, state_c = decoder_lstm(decoder_inputs, initial_state=decoder_states_inputs)
+        decoder_outputs, state_h, state_c = decoder_lstm(
+            decoder_inputs, initial_state=decoder_states_inputs)
         decoder_states = [state_h, state_c]
         decoder_outputs = decoder_dense(decoder_outputs)
-        self.decoder_model = tf.keras.models.Model([decoder_inputs] + decoder_states_inputs, [decoder_outputs] + decoder_states)
+        self.decoder_model = tf.keras.models.Model(
+            [decoder_inputs] + decoder_states_inputs, [decoder_outputs] + decoder_states)
 
-    def train(self, enc_in, dec_in, dec_out, batch = 100, epochs = 20):
-        self.train_model.fit([enc_in, dec_in], dec_out, batch_size = batch, epochs = epochs)	 
+    def load_model(self, name):
+        self.train_model.load_weights(name)
+
+    def train(self, enc_in, dec_in, dec_out, batch=100, epochs=20):
+        self.train_model.fit([enc_in, dec_in], dec_out,
+                             batch_size=batch, epochs=epochs)
         self.train_model.save('seq2seq_model.h5')
 
     def test(self, input_seq, input_token_index, target_token_index, num_decoder_tokens, max_decoder_seq_length):
@@ -80,6 +94,3 @@ class seq2seq:
             states_value = [h, c]
 
         return decoded_sentence
-
-
-
