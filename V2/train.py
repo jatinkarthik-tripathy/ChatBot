@@ -1,4 +1,4 @@
-from seq2seq import seq2seq
+from attn_s2s_model import seq2seq
 import numpy as np
 import json
 import pickle
@@ -25,7 +25,7 @@ def get_convs():
         a = '\t' + a + '\n'  # start of string and end of string
         convs_from.append(q)
         convs_to.append(a)
-    
+
     return convs_from, convs_to
 
 
@@ -65,7 +65,7 @@ parameters = [convs_from, convs_to, input_token, output_token, NUM_ENC_TOKENS, N
               MAX_ENC_LEN, MAX_DEC_LEN]
 pickle.dump(parameters, open('parameters.pkl', 'wb'))
 
-# s2s = seq2seq()
-# s2s.create_models(NUM_ENC_TOKENS, NUM_DEC_TOKENS)
-# s2s.train(encoder_input_data, decoder_input_data,
-#           decoder_target_data, epochs=5)
+s2s = seq2seq()
+s2s.create_models(NUM_ENC_TOKENS, NUM_DEC_TOKENS)
+s2s.train(encoder_input_data, decoder_input_data,
+          decoder_target_data, epochs=5)
