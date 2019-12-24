@@ -1,14 +1,21 @@
-from seq2seq import seq2seq
+from attn_s2s_model import seq2seq
 import pickle
 import numpy as np
 
 
 [convs_from, convs_to, input_token, output_token, NUM_ENC_TOKENS, NUM_DEC_TOKENS,
  MAX_ENC_LEN, MAX_DEC_LEN] = pickle.load(open('parameters.pkl', 'rb'))
-s2s = seq2seq()
-s2s.create_models(NUM_ENC_TOKENS, NUM_DEC_TOKENS)
 
-s2s.load_model("seq2seq_model.h5")
+print(f'input:{NUM_ENC_TOKENS}')
+print(f'output:{NUM_DEC_TOKENS}')
+print(f'max enc:{MAX_ENC_LEN}')
+print(f'max dec:{MAX_DEC_LEN}')
+print(f'input sentences:{len(convs_from)}')
+print(f'output sentences:{len(convs_to)}')
+s2s = seq2seq()
+s2s.create_models(NUM_ENC_TOKENS, NUM_DEC_TOKENS, MAX_ENC_LEN, MAX_DEC_LEN)
+
+s2s.load_model("attn_5words.h5")
 
 
 while True:

@@ -1,120 +1,130 @@
 import tensorflow as tf
 import numpy as np
+from attention_layer import AttentionLayer
 
 
 class seq2seq:
-    def attention(self, units, features, hidden):
-        self.W1 = tf.keras.layers.Dense(units)
-        self.W2 = tf.keras.layers.Dense(units)
-        self.V = tf.keras.layers.Dense(1)
-
-        hidden_with_time_axis = tf.expand_dims(hidden, 1)
-        score = tf.nn.tanh(self.W1(features) + self.W2(hidden_with_time_axis))
-        attention_weights = tf.nn.softmax(self.V(score), axis=1)
-        context_vector = attention_weights * features
-        # context_vector = tf.reduce_sum(context_vector, axis=1)
-
-        return context_vector, attention_weights
-
-    def create_models(self, inp_len, out_len, latent_dim=256):
-        self.inp_len = inp_len
-        self.out_len = out_len
+    def create_models(self, NUM_ENC_TOKENS, NUM_DEC_TOKENS, MAX_ENC_LEN, MAX_DEC_LEN, latent_dim=256):
+        self.NUM_ENC_TOKENS = NUM_ENC_TOKENS
+        self.NUM_DEC_TOKENS = NUM_DEC_TOKENS
+        self.MAX_ENC_LEN = MAX_ENC_LEN
+        self.MAX_DEC_LEN = MAX_DEC_LEN
         self.latent_dim = latent_dim
 
-        # training model:
-        # Define an input sequence and process it.
-        encoder_inputs = tf.keras.layers.Input(shape=(None, self.inp_len))
-        encoder = tf.keras.layers.LSTM(self.latent_dim, return_state=True)
-        encoder_outputs, state_h, state_c = encoder(encoder_inputs)
+        encoder_inputs = tf.keras.layers.Input(
+            shape=(self.MAX_ENC_LEN, self.NUM_ENC_TOKENS), name='encoder_inputs')
 
-        encoder_states = [state_h, state_c]
+        decoder_inputs = tf.keras.layers.Input(
+            shape=(self.MAX_DEC_LEN, self.NUM_DEC_TOKENS), name='decoder_inputs')
+        # Encoder GRU
+        encoder_gru = tf.keras.layers.GRU(self.latent_dim, return_sequences=True,
+                                          return_state=True, name='encoder_gru')
+        encoder_out, encoder_state = encoder_gru(encoder_inputs)
 
-        # using the encoder outputs to get the context vector
-        context_vector, attention_weights = self.attention(
-            10, encoder_outputs, state_h)
-        # Set up the decoder, using `encoder_states` as initial state.
-        decoder_inputs = tf.keras.layers.Input(shape=(None, 109))
-        # concat = tf.keras.layers.concatenate(
-        #     [tf.expand_dims(context_vector, 1), decoder_inputs])
+        # Set up the decoder GRU, using `encoder_states` as initial state.
+        decoder_gru = tf.keras.layers.GRU(self.latent_dim, return_sequences=True,
+                                          return_state=True, name='decoder_gru')
+        decoder_out, decoder_state = decoder_gru(
+            decoder_inputs, initial_state=encoder_state)
 
-        concat = tf.keras.layers.concatenate(
-            [context_vector, decoder_inputs])
+        # attention
+        attn_layer = AttentionLayer(name='attention_layer')
+        attn_out, attn_states = attn_layer([encoder_out, decoder_out])
 
-        concated_inputs = tf.keras.layers.Input(shape=concat)
+        decoder_concat_input = tf.keras.layers.Concatenate(
+            axis=-1, name='concat_layer')([decoder_out, attn_out])
 
-        decoder_lstm = tf.keras.layers.LSTM(
-            self.latent_dim, return_sequences=True, return_state=True)
-        decoder_outputs, _, _ = decoder_lstm(
-            concated_inputs, initial_state=encoder_states)
-        decoder_dense = tf.keras.layers.Dense(
-            self.out_len, activation='softmax')
-        dec_out = decoder_dense(decoder_outputs)
+        # Dense layer
+        dense = tf.keras.layers.Dense(
+            self.NUM_DEC_TOKENS, activation='softmax', name='softmax_layer')
+        dense_time = tf.keras.layers.TimeDistributed(
+            dense, name='time_distributed_layer')
+        decoder_pred = dense_time(decoder_concat_input)
+
         self.train_model = tf.keras.models.Model(
-            [encoder_inputs, decoder_inputs], dec_out)
-        print(self.train_model.summary())
+            [encoder_inputs, decoder_inputs], decoder_pred)
         self.train_model.compile(
-            optimizer='rmsprop', loss='categorical_crossentropy')
+            optimizer='adam', loss='categorical_crossentropy')
+        print(self.train_model.summary())
 
         # Inference setup:
-        self.encoder_model = tf.keras.models.Model(
-            encoder_inputs, encoder_states)
+        inf_encoder_inputs = tf.keras.layers.Input(
+            shape=(self.MAX_ENC_LEN, self.NUM_ENC_TOKENS), name='encoder_inputs')
+        inf_enc_out, inf_enc_state = encoder_gru(inf_encoder_inputs)
+        self.encoder_model = tf.keras.models.Model(inputs=inf_encoder_inputs, outputs=[
+            inf_enc_out, inf_enc_state])
 
-        decoder_state_input_h = tf.keras.layers.Input(shape=(self.latent_dim,))
-        decoder_state_input_c = tf.keras.layers.Input(shape=(self.latent_dim,))
-        decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
-        decoder_outputs, state_h, state_c = decoder_lstm(
-            decoder_inputs, initial_state=decoder_states_inputs)
-        decoder_states = [state_h, state_c]
-        decoder_outputs = decoder_dense(decoder_outputs)
-        self.decoder_model = tf.keras.models.Model(
-            [decoder_inputs] + decoder_states_inputs, [decoder_outputs] + decoder_states)
+        print(self.encoder_model.summary())
+
+        decoder_inf_inputs = tf.keras.layers.Input(
+            shape=(1, 1, self.NUM_DEC_TOKENS), name='decoder_inputs')
+        encoder_inf_states = tf.keras.layers.Input(shape=(
+            1, self.MAX_ENC_LEN, self.latent_dim), name='encoder_inf_states')
+        decoder_init_state = tf.keras.layers.Input(shape=(
+            None, self.latent_dim), name='decoder_init')
+
+        decoder_inf_out, decoder_inf_state = decoder_gru(
+            decoder_inf_inputs, initial_state=decoder_init_state)
+        attn_inf_out, attn_inf_states = attn_layer(
+            [encoder_inf_states, decoder_inf_out])
+        decoder_inf_concat = tf.keras.layers.Concatenate(
+            axis=-1, name='concat')([decoder_inf_out, attn_inf_out])
+        decoder_inf_pred = tf.keras.layers.TimeDistributed(
+            dense)(decoder_inf_concat)
+        self.decoder_model = tf.keras.models.Model(inputs=[encoder_inf_states, decoder_init_state, decoder_inf_inputs],
+                                              outputs=[decoder_inf_pred, attn_inf_states, decoder_inf_state])
+        print(self.decoder_model.summary())
 
     def load_model(self, name):
         self.train_model.load_weights(name)
 
-    def train(self, enc_in, dec_in, dec_out, batch=100, epochs=20):
+    def train(self, enc_in, dec_in, dec_out, batch=100, epochs=20, cbs=[]):
         self.train_model.fit([enc_in, dec_in], dec_out,
-                             batch_size=batch, epochs=epochs)
+                             batch_size=batch, epochs=epochs, callbacks=cbs)
         self.train_model.save('attn_5words.h5')
 
-    # def test(self, input_seq, input_token_index, target_token_index, num_decoder_tokens, max_decoder_seq_length):
-    #     # Reverse-lookup token index to decode sequences back to
-    #     # something readable.
-    #     reverse_target_char_index = dict(
-    #         (i, char) for char, i in target_token_index.items())
+    def test(self, input_seq, input_token_index, target_token_index, num_decoder_tokens, max_decoder_seq_length):
+        # Reverse-lookup token index to decode sequences back to
+        # something readable.
+        reverse_target_char_index = dict(
+            (i, char) for char, i in target_token_index.items())
 
-    #     # Encode the input as state vectors.
-    #     states_value = self.encoder_model.predict(input_seq)
+        # Encode the input as state vectors.
+        enc_outs, enc_last_state = self.encoder_model.predict(input_seq)
+        dec_state = enc_last_state
+        attention_weights = []
+        
+        # Generate empty target sequence of length 1.
+        target_seq = np.zeros((1, 1, num_decoder_tokens))
+        print(target_seq.shape)
+        # Populate the first character of target sequence with the start character.
+        target_seq[0, 0, target_token_index['\t']] = 1.
 
-    #     # Generate empty target sequence of length 1.
-    #     target_seq = np.zeros((1, 1, num_decoder_tokens))
-    #     # Populate the first character of target sequence with the start character.
-    #     target_seq[0, 0, target_token_index['\t']] = 1.
+        # Sampling loop for a batch of sequences
+        # (to simplify, here we assume a batch of size 1).
+        stop_condition = False
+        decoded_sentence = ''
+        while not stop_condition:
+            dec_out, attention, dec_state = self.decoder_model.predict(
+                [enc_outs, dec_state, target_seq])
+                
+            # Sample a token
+            sampled_token_index = np.argmax(dec_out, axis=-1)[0, 0]
+            sampled_token_index = np.argmax(dec_out[0, -1, :])
+            sampled_char = reverse_target_char_index[sampled_token_index]
+            decoded_sentence += sampled_char
 
-    #     # Sampling loop for a batch of sequences
-    #     # (to simplify, here we assume a batch of size 1).
-    #     stop_condition = False
-    #     decoded_sentence = ''
-    #     while not stop_condition:
-    #         output_tokens, h, c = self.decoder_model.predict(
-    #             [target_seq] + states_value)
+            # Exit condition: either hit max length
+            # or find stop character.
+            if (sampled_char == '\n' or
+                    len(decoded_sentence) > max_decoder_seq_length):
+                stop_condition = True
 
-    #         # Sample a token
-    #         sampled_token_index = np.argmax(output_tokens[0, -1, :])
-    #         sampled_char = reverse_target_char_index[sampled_token_index]
-    #         decoded_sentence += sampled_char
+            # Update the target sequence (of length 1).
+            target_seq = np.zeros((1, 1, num_decoder_tokens))
+            target_seq[0, 0, sampled_token_index] = 1.
 
-    #         # Exit condition: either hit max length
-    #         # or find stop character.
-    #         if (sampled_char == '\n' or
-    #                 len(decoded_sentence) > max_decoder_seq_length):
-    #             stop_condition = True
+            # Update states
+            attention_weights.append((dec_ind, attention))
 
-    #         # Update the target sequence (of length 1).
-    #         target_seq = np.zeros((1, 1, num_decoder_tokens))
-    #         target_seq[0, 0, sampled_token_index] = 1.
-
-    #         # Update states
-    #         states_value = [h, c]
-
-    #     return decoded_sentence
+        return decoded_sentence
