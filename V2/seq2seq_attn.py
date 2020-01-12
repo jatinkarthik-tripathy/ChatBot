@@ -25,7 +25,8 @@ class seq2seq:
 
         # training model:
         # encoder model
-        encoder_inputs = tf.keras.layers.Embedding(self.NUM_ENC_UNITS, self.latent_dim)
+        encoder_inputs = tf.keras.layers.Input(
+            shape=(None, self.NUM_ENC_UNITS))
         encoder = tf.keras.layers.CuDNNGRU(
             self.NUM_ENC_UNITS, return_sequences=True,
             return_state=True)
@@ -33,15 +34,17 @@ class seq2seq:
 
         # decoder model
         context_vector = self.attention(enc_outputs, enc_hidden)
-        target_inputs = tf.keras.layers.Embedding(self.NUM_DEC_UNITS, self.latent_dim)
+        target_inputs = tf.keras.layers.Input(
+            shape=(None, self.NUM_DEC_UNITS))
         concat = tf.concat(
-            [tf.expand_dims(context_vector, 1), target_inputs], axis=-1)
+            [tf.expand_dims(context_vector, 1), target_inputs], axis=3)
         decoder_inputs = tf.keras.layers.Input(shape=concat.shape)
         decoder_gru = tf.keras.layers.CuDNNGRU(
             self.NUM_DEC_UNITS, return_sequences=True,
             return_state=True)
         decoder_outputs, _, = decoder_gru(decoder_inputs)
-        decoder_outputs = tf.reshape(decoder_outputs, (-1, decoder_outputs.shape[2]))
+        decoder_outputs = tf.reshape(
+            decoder_outputs, (-1, decoder_outputs.shape[2]))
         decoder_dense = tf.keras.layers.Dense(
             self.NUM_DEC_UNITS, activation='softmax')
         decoder_outputs = decoder_dense(decoder_outputs)

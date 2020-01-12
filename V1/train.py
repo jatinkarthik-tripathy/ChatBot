@@ -63,4 +63,5 @@ pickle.dump(parameters, open('parameters.pkl', 'wb'))
 
 s2s = seq2seq()
 s2s.create_models(NUM_ENC_TOKENS, NUM_DEC_TOKENS)
-s2s.train(encoder_input_data, decoder_input_data, decoder_target_data, epochs=150)
+s2s.train(encoder_input_data, decoder_input_data,
+          decoder_target_data, epochs=150)
